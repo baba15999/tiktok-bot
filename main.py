@@ -82,4 +82,9 @@ async def main():
         f.write("\n".join(sent))
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        import traceback
+        print("❌ HATA OLUŞTU!")
+        print(traceback.format_exc())
