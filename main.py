@@ -4,6 +4,7 @@ import os
 import asyncio
 import requests
 import re
+import time
 from datetime import datetime
 from playwright.async_api import async_playwright
 
@@ -179,7 +180,7 @@ def send_profile_to_discord(profile_data, username):
         return False
 
 def send_videos_to_discord(video_links, username, video_type="video"):
-    """Toplu video gönderimi - her link için ayrı embed"""
+    """Toplu video gönderimi - her link için ayrı embed (async DEĞIL)"""
     if not video_links:
         print(f"⚠️ Gönderilecek {video_type} linki yok")
         return 0
@@ -208,7 +209,7 @@ def send_videos_to_discord(video_links, username, video_type="video"):
                 print(f"✅ Gönderildi: {link[:50]}...")
             else:
                 print(f"⚠️ Hata: {response.status_code}")
-            await asyncio.sleep(1)  # Rate limit koruması
+            time.sleep(1)  # Rate limit koruması - time.sleep kullan (await DEĞIL)
         except Exception as e:
             print(f"❌ Gönderme hatası: {e}")
     
@@ -268,7 +269,7 @@ async def main():
     
     if yeni_videolar:
         print(f"🆕 {len(yeni_videolar)} yeni video bulundu")
-        gonderilen = await send_videos_to_discord(yeni_videolar, username, "video")
+        gonderilen = send_videos_to_discord(yeni_videolar, username, "video")
         
         # Gönderilenleri kaydet
         for link in yeni_videolar:
@@ -286,7 +287,7 @@ async def main():
     
     if yeni_repostlar:
         print(f"🆕 {len(yeni_repostlar)} yeni repost bulundu")
-        gonderilen = await send_videos_to_discord(yeni_repostlar, username, "repost")
+        gonderilen = send_videos_to_discord(yeni_repostlar, username, "repost")
         
         # Gönderilenleri kaydet
         for link in yeni_repostlar:
