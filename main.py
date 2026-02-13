@@ -3,16 +3,15 @@ print("🚀 BOT BAŞLADI!")
 import os
 import asyncio
 import requests
-import re
 import time
 from datetime import datetime
 from playwright.async_api import async_playwright
 
-# Playwright Stealth (isteğe bağlı)
+# Playwright Stealth (isteğe bağlı, kurulu değilse sorun olmaz)
 try:
     from playwright_stealth import stealth_async
     STEALTH_AVAILABLE = True
-except ImportError:
+except:
     STEALTH_AVAILABLE = False
     print("⚠️ playwright-stealth kurulu değil, devam ediliyor.")
 
@@ -34,13 +33,13 @@ else:
 async def get_tiktok_data(username):
     print(f"🔍 TikTok kullanıcısı: @{username}")
     async with async_playwright() as p:
-        # Firefox kullan (daha az engellenir)
+        # Firefox kullan (daha az engel)
         browser = await p.firefox.launch(headless=True)
         page = await browser.new_page()
+        
         if STEALTH_AVAILABLE:
             await stealth_async(page)
-            print("✅ Stealth uygulandı")
-
+        
         # Profil sayfasına git
         profile_url = f"https://www.tiktok.com/@{username}"
         print(f"🌐 Gidilen URL: {profile_url}")
@@ -51,21 +50,20 @@ async def get_tiktok_data(username):
             print(f"❌ Sayfa yüklenemedi: {e}")
             await browser.close()
             return None, [], []
-
+        
         # Sayfanın yüklenmesi için bekle
         print("⏳ Sayfa yükleniyor...")
-        await page.wait_for_timeout(20000)  # 20 saniye bekle
-
+        await page.wait_for_timeout(15000)
+        
         # ----- PROFİL BİLGİLERİ -----
         profile_data = {}
-
-        # Profil fotoğrafı (geliştirilmiş seçiciler)
+        
+        # Profil fotoğrafı (birden çok seçici)
         avatar_selectors = [
             'img[src*="avt"]',
             'img[alt*="avatar"]',
             'img[class*="avatar"]',
-            'img[data-e2e="user-avatar"]',
-            'img[src*="tos-alisg-avt"]'  # verdiğin linkteki pattern
+            'img[data-e2e="user-avatar"]'
         ]
         avatar = None
         for sel in avatar_selectors:
@@ -77,9 +75,7 @@ async def get_tiktok_data(username):
             except:
                 continue
         profile_data['avatar'] = avatar
-        if not avatar:
-            print("⚠️ Profil fotoğrafı bulunamadı")
-
+        
         # İsim
         try:
             display_name = await page.eval_on_selector(
@@ -90,7 +86,7 @@ async def get_tiktok_data(username):
         except:
             profile_data['display_name'] = username
         print(f"👤 İsim: {profile_data['display_name']}")
-
+        
         # Takipçi
         try:
             follower_text = await page.eval_on_selector(
@@ -101,7 +97,7 @@ async def get_tiktok_data(username):
         except:
             profile_data['followers'] = "Bilinmiyor"
         print(f"👥 Takipçi: {profile_data['followers']}")
-
+        
         # Takip edilen
         try:
             following_text = await page.eval_on_selector(
@@ -112,7 +108,7 @@ async def get_tiktok_data(username):
         except:
             profile_data['following'] = "Bilinmiyor"
         print(f"👥 Takip edilen: {profile_data['following']}")
-
+        
         # Biyografi
         try:
             bio = await page.eval_on_selector(
@@ -123,112 +119,50 @@ async def get_tiktok_data(username):
         except:
             profile_data['bio'] = "Biyografi yok"
         print(f"📝 Biyografi: {profile_data['bio'][:50]}...")
-
-        # ----- VİDEOLAR SEKMESİNE TIKLA VE VİDEO LİNKLERİNİ TOPLA -----
-        video_links = []
-
-        # "Videolar" sekmesini bul (data-e2e="videos-tab")
-        try:
-            videos_tab = await page.query_selector('div[data-e2e="videos-tab"]')
-            if videos_tab:
-                print("✅ Videolar sekmesi bulundu, tıklanıyor...")
-                await videos_tab.click()
-                await page.wait_for_timeout(5000)
-            else:
-                print("⚠️ Videolar sekmesi bulunamadı, sayfa zaten videolar sekmesinde olabilir.")
-        except Exception as e:
-            print(f"⚠️ Videolar sekmesine tıklanamadı: {e}")
-
-        # Sayfayı kaydırarak video yükle
+        
+        # ----- VİDEO LİNKLERİNİ TOPLA (kullanıcının kendi videoları) -----
         print("📜 Sayfa kaydırılıyor (video yüklemek için)...")
-        for _ in range(8):  # 8 kez kaydır
+        for _ in range(5):
             await page.evaluate("window.scrollBy(0, window.innerHeight)")
             await page.wait_for_timeout(3000)
-
-        # Tüm linkleri al
-        all_links = await page.eval_on_selector_all(
-            'a[href]',
+        
+        # Doğru seçici: data-e2e="user-post-item" içindeki a href
+        video_links = await page.eval_on_selector_all(
+            'div[data-e2e="user-post-item"] a[href*="/video/"]',
             'els => els.map(el => el.href)'
         )
-        print(f"🔗 Toplam link sayısı: {len(all_links)}")
-
-        # Debug: İlk 20 linki yazdır (ne tür linkler var görmek için)
-        print("📎 İlk 20 link örneği:")
-        for i, link in enumerate(all_links[:20]):
-            print(f"   {i+1}. {link[:100]}")
-
-        # Video linklerini filtrele (içinde /video/ geçenler)
-        video_links = [link for link in all_links if '/video/' in link]
-        video_links = list(set(video_links))[:10]
-        print(f"🎥 Video linkleri (/{'video/'} içeren): {len(video_links)}")
-
-        # Eğer hala 0'sa, regex ile dene
-        if len(video_links) == 0:
-            content = await page.content()
-            video_ids = re.findall(r'/video/(\d+)', content)
-            unique_ids = list(set(video_ids))[:10]
-            if unique_ids:
-                regex_links = [f"https://www.tiktok.com/@{username}/video/{vid}" for vid in unique_ids]
-                video_links = regex_links
-                print(f"🎥 Regex ile {len(video_links)} video linki oluşturuldu")
-
-        # ----- REPOST SEKMESİNE TIKLA VE REPOST LİNKLERİNİ TOPLA -----
+        video_links = list(set(video_links))[:10]  # Benzersiz, ilk 10
+        print(f"🎥 Bulunan video linkleri: {len(video_links)}")
+        for i, link in enumerate(video_links):
+            print(f"   {i+1}. {link}")
+        
+        # ----- REPOST LİNKLERİNİ TOPLA (eğer repost sekmesi varsa) -----
         repost_links = []
-
-        # "Repost" sekmesini bul (data-e2e="repost-tab")
         try:
+            # Repost sekmesini bul
             repost_tab = await page.query_selector('div[data-e2e="repost-tab"]')
             if repost_tab:
-                print("✅ Repost sekmesi bulundu, tıklanıyor...")
+                print("🔄 Repost sekmesi bulundu, tıklanıyor...")
                 await repost_tab.click()
-                await page.wait_for_timeout(8000)
-
+                await page.wait_for_timeout(10000)  # Yüklenmesini bekle
+                
                 # Sayfayı kaydır
-                for _ in range(5):
+                for _ in range(3):
                     await page.evaluate("window.scrollBy(0, window.innerHeight)")
-                    await page.wait_for_timeout(3000)
-
-                # Linkleri topla
-                repost_all = await page.eval_on_selector_all(
-                    'a[href]',
+                    await page.wait_for_timeout(2000)
+                
+                # Repost linklerini topla (aynı seçici)
+                repost_links = await page.eval_on_selector_all(
+                    'div[data-e2e="user-post-item"] a[href*="/video/"]',
                     'els => els.map(el => el.href)'
                 )
-                repost_links = [link for link in repost_all if '/video/' in link]
                 repost_links = list(set(repost_links))[:10]
-                print(f"🔄 Repost linkleri: {len(repost_links)}")
+                print(f"🔄 Bulunan repost linkleri: {len(repost_links)}")
             else:
                 print("⚠️ Repost sekmesi bulunamadı.")
         except Exception as e:
-            print(f"⚠️ Repost sekmesine tıklama hatası: {e}")
-
-        # Eğer repost sekmesi yoksa alternatif URL'leri dene
-        if not repost_links:
-            print("⚠️ Repost sekmesi bulunamadı, alternatif URL'ler deneniyor...")
-            alt_urls = [
-                f"https://www.tiktok.com/@{username}?lang=en#repost",
-                f"https://www.tiktok.com/@{username}/repost",
-                f"https://www.tiktok.com/@{username}?lang=en"
-            ]
-            for url in alt_urls:
-                print(f"🌐 {url} deneniyor...")
-                try:
-                    await page.goto(url, timeout=60000)
-                    await page.wait_for_timeout(15000)
-                    for _ in range(5):
-                        await page.evaluate("window.scrollBy(0, window.innerHeight)")
-                        await page.wait_for_timeout(3000)
-                    repost_all = await page.eval_on_selector_all(
-                        'a[href]',
-                        'els => els.map(el => el.href)'
-                    )
-                    repost_links = [link for link in repost_all if '/video/' in link]
-                    repost_links = list(set(repost_links))[:10]
-                    if repost_links:
-                        print(f"🔄 {url} adresinde {len(repost_links)} repost bulundu")
-                        break
-                except Exception as e:
-                    print(f"⚠️ Hata: {e}")
-
+            print(f"⚠️ Repost sekmesi işlenirken hata: {e}")
+        
         await browser.close()
         return profile_data, video_links, repost_links
 
@@ -278,16 +212,18 @@ def send_videos_to_discord(video_links, username, video_type="video"):
                 print(f"✅ Gönderildi: {link[:50]}...")
             else:
                 print(f"⚠️ Hata: {response.status_code}")
-            time.sleep(1)
+            time.sleep(1)  # Rate limit koruması
         except Exception as e:
             print(f"❌ Gönderme hatası: {e}")
     return gonderilen
 
 async def main():
     username = os.environ["TIKTOK_USER"]
+    
+    # Daha önce gönderilenleri takip et
     sent_videos_file = "sent_videos.txt"
     sent_reposts_file = "sent_reposts.txt"
-
+    
     try:
         with open(sent_videos_file, "r") as f:
             sent_videos = set(f.read().splitlines())
@@ -295,7 +231,7 @@ async def main():
     except:
         sent_videos = set()
         print("📁 sent_videos.txt dosyası bulunamadı")
-
+    
     try:
         with open(sent_reposts_file, "r") as f:
             sent_reposts = set(f.read().splitlines())
@@ -303,20 +239,23 @@ async def main():
     except:
         sent_reposts = set()
         print("📁 sent_reposts.txt dosyası bulunamadı")
-
+    
+    # Profil daha önce gönderildi mi?
     profile_sent_file = "profile_sent.txt"
     try:
         with open(profile_sent_file, "r") as f:
             profile_sent = f.read().strip() == username
     except:
         profile_sent = False
-
+    
+    # TikTok'tan verileri al
     profile_data, video_links, repost_links = await get_tiktok_data(username)
-
+    
     if not profile_data:
         print("❌ Profil verileri alınamadı, işlem iptal.")
         return
-
+    
+    # Profil gönderimi (ilk defa)
     if not profile_sent:
         print("🆕 Profil bilgileri ilk kez gönderiliyor...")
         if send_profile_to_discord(profile_data, username):
@@ -325,7 +264,8 @@ async def main():
             await asyncio.sleep(2)
     else:
         print("⏩ Profil daha önce gönderilmiş.")
-
+    
+    # Videoları gönder
     print(f"\n📊 İşlenecek video sayısı: {len(video_links)}")
     yeni_videolar = [link for link in video_links if link not in sent_videos]
     if yeni_videolar:
@@ -338,7 +278,8 @@ async def main():
         print(f"✅ {gonderilen} yeni video gönderildi.")
     else:
         print("⏩ Yeni video yok.")
-
+    
+    # Repostları gönder
     print(f"\n📊 İşlenecek repost sayısı: {len(repost_links)}")
     yeni_repostlar = [link for link in repost_links if link not in sent_reposts]
     if yeni_repostlar:
@@ -351,7 +292,7 @@ async def main():
         print(f"✅ {gonderilen} yeni repost gönderildi.")
     else:
         print("⏩ Yeni repost yok.")
-
+    
     print("\n✅ Bot çalışması tamamlandı.")
 
 if __name__ == "__main__":
