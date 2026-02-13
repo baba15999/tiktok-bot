@@ -27,15 +27,28 @@ import requests
 from datetime import datetime
 from playwright.async_api import async_playwright
 
-async def get_user_videos_and_reposts(username):
-    async with async_playwright() as p:
-        # Firefox kullan, daha az engel
-        browser = await p.firefox.launch(headless=True)
-        page = await browser.new_page()
+# Repost sekmesi
+repost_url = f"https://www.tiktok.com/@{username}?lang=en"
+await page.goto(repost_url, timeout=60000)
+await page.wait_for_timeout(8000)
+
+# Repost linkleri
+repost_links = await page.eval_on_selector_all(
+    'div[data-e2e="user-repost-item"] a[href*="/video/"]',
+    'els => els.map(el => el.href)'
+)
+print(f"🔄 Bulunan repost linkleri: {len(repost_links)}")
         
-        # Ana profil – kendi videoları
-        await page.goto(f"https://www.tiktok.com/@{username}", timeout=60000)
-        await page.wait_for_timeout(5000)
+# Ana profil – kendi videoları
+await page.goto(f"https://www.tiktok.com/@{username}", timeout=60000)
+await page.wait_for_timeout(8000)  # 8 saniye bekle (daha güvenli)
+
+# Daha güçlü seçici
+video_links = await page.eval_on_selector_all(
+    'div[data-e2e="user-post-item"] a[href*="/video/"]',
+    'els => els.map(el => el.href)'
+)
+print(f"🎥 Bulunan video linkleri: {len(video_links)}")
         
         # Video linklerini topla (kendi gönderileri)
         video_links = await page.eval_on_selector_all(
