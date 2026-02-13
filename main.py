@@ -29,45 +29,49 @@ async def get_user_videos_and_reposts(username):
         browser = await p.firefox.launch(headless=True)
         page = await browser.new_page()
         
-        # ---- KENDİ VİDEOLARI ----
-        await page.goto(f"https://www.tiktok.com/@{username}", timeout=60000)
-        await page.wait_for_timeout(8000)  # Sayfanın tam yüklenmesi için
+        # ---- DİREKT REPOST SAYFASINA GİT (en önemli kısım) ----
+        repost_url = f"https://www.tiktok.com/@{username}?lang=en"
+        print(f"🌐 Gidilen URL: {repost_url}")
+        await page.goto(repost_url, timeout=60000)
+        await page.wait_for_timeout(10000)  # 10 saniye bekle (sayfanın tam yüklenmesi için)
         
-        video_links = await page.eval_on_selector_all(
-            'div[data-e2e="user-post-item"] a[href*="/video/"]',
+        # Sayfanın yüklendiğine dair kontrol
+        print(f"📄 Sayfa başlığı: {await page.title()}")
+        
+        # Tüm video linklerini bul (daha geniş seçici)
+        all_links = await page.eval_on_selector_all(
+            'a[href*="/video/"]',
             'els => els.map(el => el.href)'
         )
-        print(f"🎥 Bulunan video linkleri: {len(video_links)}")
-        for i, link in enumerate(video_links[:3]):
-            print(f"   {i+1}. {link}")
+        print(f"🔗 Bulunan tüm video linkleri: {len(all_links)}")
         
-        # ---- REPOST VİDEOLARI ----
-        await page.goto(f"https://www.tiktok.com/@{username}?lang=en", timeout=60000)
-        await page.wait_for_timeout(8000)
+        # Repost'ları ayırmak için sayfa kaynağını kontrol et
+        page_content = await page.content()
+        if 'repost' in page_content.lower():
+            print("✅ Sayfada 'repost' ifadesi bulundu")
         
-        repost_links = await page.eval_on_selector_all(
-            'div[data-e2e="user-repost-item"] a[href*="/video/"]',
-            'els => els.map(el => el.href)'
-        )
-        print(f"🔄 Bulunan repost linkleri: {len(repost_links)}")
-        for i, link in enumerate(repost_links[:3]):
-            print(f"   {i+1}. {link}")
+        # Benzersiz linkleri al, ilk 10'u seç
+        unique_links = list(set(all_links))[:10]
+        print(f"🎯 Seçilen link sayısı: {len(unique_links)}")
+        
+        # Repost linkleri (hepsini repost kabul ediyoruz çünkü repost sayfasındayız)
+        repost_links = unique_links
+        
+        # Kendi videoları için ayrıca profil sayfasına gitme (isteğe bağlı)
+        # Şimdilik sadece repost'ları alalım
+        videos = []
         
         await browser.close()
-        
-        # Tekrarları temizle, ilk 5'le sınırla
-        videos = list(set(video_links))[:5]
-        reposts = list(set(repost_links))[:5]
-        return videos, reposts
+        return videos, repost_links
 
 def send_to_discord(video_url, is_repost, username):
-    print(f"📤 Discord'a gönderiliyor: {video_url} (Repost: {is_repost})")
+    print(f"📤 Discord'a gönderiliyor: {video_url}")
     embed = {
-        "title": "🔄 Yeni Repost" if is_repost else "🎥 Yeni Gönderi",
+        "title": "🔄 Yeni Repost",
         "url": video_url,
-        "color": 0xffaa00 if is_repost else 0x00ff00,
+        "color": 0xffaa00,
         "timestamp": datetime.utcnow().isoformat(),
-        "footer": {"text": f"@{username} • {'Repost' if is_repost else 'Gönderi'}"}
+        "footer": {"text": f"@{username} • Repost"}
     }
     webhook_url = os.environ["DISCORD_WEBHOOK"]
     try:
@@ -79,32 +83,33 @@ def send_to_discord(video_url, is_repost, username):
 async def main():
     username = os.environ["TIKTOK_USER"]
     
-    # Daha önce gönderilenleri takip et (geçici dosya)
+    # Daha önce gönderilenleri takip et
     sent_file = "sent.txt"
     try:
         with open(sent_file, "r") as f:
             sent = set(f.read().splitlines())
+        print(f"📁 Daha önce gönderilen link sayısı: {len(sent)}")
     except:
         sent = set()
+        print("📁 sent.txt dosyası bulunamadı, yeni oluşturulacak.")
     
-    # TikTok'tan verileri al
+    # TikTok'tan verileri al (sadece repost'lar)
     videos, reposts = await get_user_videos_and_reposts(username)
     
-    # Kendi gönderilerini kontrol et
-    for v in videos:
-        if v not in sent:
-            send_to_discord(v, False, username)
-            sent.add(v)
-        else:
-            print(f"⏩ Daha önce gönderilmiş: {v}")
+    print(f"📊 İşlenecek repost sayısı: {len(reposts)}")
     
-    # Repostları kontrol et
+    # Repostları kontrol et (videos boş, sadece repost'lar)
+    yeni_sayisi = 0
     for r in reposts:
         if r not in sent:
             send_to_discord(r, True, username)
             sent.add(r)
+            yeni_sayisi += 1
+            await asyncio.sleep(2)  # Discord rate limit koruması
         else:
-            print(f"⏩ Daha önce gönderilmiş repost: {r}")
+            print(f"⏩ Daha önce gönderilmiş: {r}")
+    
+    print(f"✅ {yeni_sayisi} yeni repost gönderildi.")
     
     # Gönderilenleri dosyaya yaz
     with open(sent_file, "w") as f:
