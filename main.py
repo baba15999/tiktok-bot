@@ -1,3 +1,4 @@
+print("🚀 BOT BAŞLADI!")
 import os
 import asyncio
 import requests
