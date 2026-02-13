@@ -1,4 +1,26 @@
 print("🚀 BOT BAŞLADI!")
+
+# ========== ACİL TEST MODU ==========
+import os
+import requests
+
+# Discord webhook testi - her seferinde test mesajı gönder
+webhook_url = os.environ.get("DISCORD_WEBHOOK")
+if webhook_url:
+    test_embed = {
+        "title": "🧪 TEST MESAJI",
+        "description": "Bot çalışıyor, webhook aktif.",
+        "color": 0x0000ff
+    }
+    try:
+        r = requests.post(webhook_url, json={"embeds": [test_embed]})
+        print(f"📨 TEST MESAJI GÖNDERİLDİ: {r.status_code}")
+    except Exception as e:
+        print(f"❌ TEST MESAJI HATASI: {e}")
+else:
+    print("❌ DISCORD_WEBHOOK ortam değişkeni bulunamadı!")
+# =====================================
+print("🚀 BOT BAŞLADI!")
 import os
 import asyncio
 import requests
