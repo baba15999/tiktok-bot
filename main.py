@@ -125,31 +125,35 @@ async def get_tiktok_data(username):
             print(f"⚠️ Video linkleri alınamadı: {e}")
         
         # ----- REPOST LİNKLERİNİ ÇEK (REPOST SAYFASINDAN) -----
-        repost_links = []
+       # Repost linklerini topla (sekme tıklama yöntemi)
+repost_links = []
+try:
+    # Profil sayfasında repost sekmesini bul ve tıkla
+    print("🔄 Repost sekmesi aranıyor...")
+    repost_tab = await page.query_selector('div[data-e2e="repost-tab"]')
+    if repost_tab:
+        await repost_tab.click()
+        print("✅ Repost sekmesine tıklandı")
+        await page.wait_for_timeout(8000)  # İçeriğin yüklenmesini bekle
         
-        # Repost sayfasına git
-        repost_url = f"https://www.tiktok.com/@{username}?lang=en"
-        print(f"🌐 Repost sayfasına gidiliyor: {repost_url}")
+        # Sayfayı kaydırarak daha fazla repost yükle
+        for _ in range(3):
+            await page.evaluate("window.scrollBy(0, window.innerHeight)")
+            await page.wait_for_timeout(2000)
         
-        try:
-            await page.goto(repost_url, timeout=60000)
-            await page.wait_for_timeout(10000)
-            
-            repost_all = await page.eval_on_selector_all(
-                'a[href*="/video/"]',
-                'els => els.map(el => el.href)'
-            )
-            print(f"🔗 Repost sayfasında bulunan linkler: {len(repost_all)}")
-            
-            if repost_all:
-                repost_links = list(set(repost_all))[:10]
-                print(f"🔄 Repost linkleri: {len(repost_links)}")
-        except Exception as e:
-            print(f"⚠️ Repost sayfası alınamadı: {e}")
-        
-        await browser.close()
-        return profile_data, video_links, repost_links
-
+        # Repost linklerini topla
+        repost_all = await page.eval_on_selector_all(
+            'a[href*="/video/"]',
+            'els => els.map(el => el.href)'
+        )
+        repost_links = list(set(repost_all))[:10]
+        print(f"🔄 Repost linkleri: {len(repost_links)}")
+    else:
+        print("⚠️ Repost sekmesi bulunamadı, alternatif URL deneniyor...")
+        # Alternatif olarak eski yöntemi dene
+        # ... (eski repost URL'leri)
+except Exception as e:
+    print(f"⚠️ Repost sekmesi hatası: {e}")
 def send_profile_to_discord(profile_data, username):
     print("📤 Profil bilgileri Discord'a gönderiliyor...")
     
