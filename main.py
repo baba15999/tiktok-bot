@@ -1,41 +1,27 @@
-from TikTokApi import TikTokApi
-import asyncio
-import os
-import requests
-from datetime import datetime
-
 async def get_reposts_and_videos():
     async with TikTokApi() as api:
-        await api.create_sessions(num_sessions=1, headless=True)
+        # ⚠️ ŞU SATIRI DEĞİŞTİR:
+        await api.create_sessions(
+            num_sessions=1, 
+            headless=True, 
+            browser='webkit',        # Chromium yerine WebKit dene
+            sleep_after=3           # Her işlemden sonra 3 saniye bekle
+        )
+        
         user = api.user(username=os.environ["TIKTOK_USER"])
+        user_data = await user.info()
+        user_id = user_data["user"]["id"]
         
-        # Kendi gönderileri
+        # Kendi gönderileri - sayıyı 3'e düşür, daha az şüpheli
         videos = []
-        async for video in user.videos(count=5):
+        async for video in user.videos(count=3):
             videos.append(video)
+            await asyncio.sleep(1)   # Her video arasında bekle
         
-        # REPOSTLAR (beğeniler)
+        # Repost'lar - beğeniler
         reposts = []
-        async for video in user.liked(count=5):
+        async for video in user.liked(count=3):
             reposts.append(video)
+            await asyncio.sleep(1)
             
         return videos, reposts
-
-def send_discord(video, is_repost):
-    embed = {
-        "title": "🔁 Repost" if is_repost else "🎥 Yeni Gönderi",
-        "description": video.get("desc", "")[:100],
-        "url": f"https://www.tiktok.com/@{os.environ['TIKTOK_USER']}/video/{video['id']}",
-        "color": 0xffaa00 if is_repost else 0x00ff00,
-        "timestamp": datetime.utcnow().isoformat(),
-        "thumbnail": {"url": video.get("video", {}).get("cover", "")}
-    }
-    requests.post(os.environ["DISCORD_WEBHOOK"], json={"embeds": [embed]})
-
-async def main():
-    vids, reps = await get_reposts_and_videos()
-    for v in vids: send_discord(v, False)
-    for r in reps: send_discord(r, True)
-
-if __name__ == "__main__":
-    asyncio.run(main())
