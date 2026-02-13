@@ -8,17 +8,20 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10      # ⏱ İndirme işlemi için süre tanı
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-      - name: Kurulum
+      
+      - name: Kütüphaneleri kur
         run: |
           pip install playwright requests
           playwright install firefox
+      
       - name: Botu çalıştır
-        run: python main.py
+        run: python -u main.py          # 🚀 -u ile print'ler anında görünsün
         env:
           TIKTOK_USER: ${{ secrets.TIKTOK_USER }}
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
