@@ -162,6 +162,44 @@ def generate_username_variations(username):
     sorted_vars = sorted(unique.items(), key=lambda x: x[1], reverse=True)
     return [v[0] for v in sorted_vars[:20]]
 
+# ========== İSİM VARYASYONLARI (URL dostu) ==========
+def generate_name_variations(display_name):
+    """
+    TikTok'taki isimden arama terimleri üret, URL dostu hale getir.
+    Örnek: "Emirhan Çelebi" -> ["emirhancelebi", "emirhan", "celebi"]
+    """
+    variations = []
+    # Boşlukları kaldır, küçük harf yap
+    no_spaces = re.sub(r'\s+', '', display_name).lower()
+    variations.append(no_spaces)
+    
+    # Sadece harf ve rakam kalacak şekilde temizle
+    clean = re.sub(r'[^a-z0-9]', '', no_spaces)
+    if clean != no_spaces:
+        variations.append(clean)
+    
+    # Kelimelere ayır (orijinal isimdeki kelimeleri kullan, boşluk korunarak)
+    words = display_name.split()
+    for word in words:
+        word_clean = re.sub(r'[^a-z0-9]', '', word.lower())
+        if len(word_clean) > 1:
+            variations.append(word_clean)
+    
+    # İlk iki kelimeyi birleştir
+    if len(words) >= 2:
+        combined = re.sub(r'[^a-z0-9]', '', (words[0] + words[1]).lower())
+        if combined not in variations:
+            variations.append(combined)
+    
+    # Benzersiz yap, boş olanları at
+    unique = []
+    seen = set()
+    for v in variations:
+        if v and len(v) > 1 and v not in seen:
+            seen.add(v)
+            unique.append(v)
+    return unique[:10]  # En fazla 10 terim
+
 # ========== TIKTOK PROFİL BİLGİLERİ ==========
 async def get_tiktok_profile(username):
     print(f"🔍 TikTok profil bilgileri alınıyor: @{username}")
@@ -397,19 +435,26 @@ async def search_image_multi_engine(image_url, tiktok_username):
     return filtered[:15]
 
 # ========== DISCORD'A GRUPLANMIŞ MESAJ GÖNDERME ==========
-def send_platform_group(platform_name, profiles, tiktok_avatar, tiktok_user):
+def send_platform_group(platform_name, profiles, tiktok_avatar, tiktok_user, source="username"):
     if not profiles:
         return
     color = COLORS.get(platform_name.lower(), COLORS["default"])
     icon = next((p["icon"] for p in PLATFORMS if p["name"] == platform_name), "🔗")
     
-    profiles.sort(key=lambda x: x['similarity'], reverse=True)
+    # En yüksek benzerlik skoruna göre sırala (source username ise, name ise sıralama yok)
+    if source == "username":
+        profiles.sort(key=lambda x: x['similarity'], reverse=True)
     
     fields = []
     for p in profiles[:5]:
-        guessed_name = generate_name_from_username(p['username'])
-        name = f"@{p['username']} (benzerlik %{p['similarity']})"
-        value = f"👤 Tahmini: {guessed_name} (kesin değil)\n[Profili görüntüle]({p['url']})"
+        if source == "username":
+            guessed_name = generate_name_from_username(p['username'])
+            name = f"@{p['username']} (benzerlik %{p['similarity']})"
+            value = f"👤 Tahmini: {guessed_name} (kesin değil)\n[Profili görüntüle]({p['url']})"
+        else:
+            # İsim aramasında aranan terimi p['term'] olarak sakladık
+            name = f"🔎 {p['term']}"
+            value = f"[Profili görüntüle]({p['url']})"
         if p.get('followers'):
             value += f"\n👥 {p['followers']} takipçi"
         fields.append({"name": name, "value": value, "inline": False})
@@ -417,8 +462,13 @@ def send_platform_group(platform_name, profiles, tiktok_avatar, tiktok_user):
     if len(profiles) > 5:
         fields.append({"name": "Diğerleri", "value": f"+{len(profiles)-5} profil daha", "inline": False})
     
+    if source == "username":
+        title = f"{icon} {platform_name} – {len(profiles)} profil bulundu (kullanıcı adı)"
+    else:
+        title = f"{icon} {platform_name} – {len(profiles)} profil bulundu (isim eşleşmesi)"
+    
     embed = {
-        "title": f"{icon} {platform_name} – {len(profiles)} profil bulundu",
+        "title": title,
         "color": color,
         "timestamp": datetime.utcnow().isoformat(),
         "footer": {"text": f"@{tiktok_user} ile bağlantılı • Gruplandırılmış rapor"},
@@ -429,7 +479,7 @@ def send_platform_group(platform_name, profiles, tiktok_avatar, tiktok_user):
     
     try:
         requests.post(webhook_url, json={"embeds": [embed]})
-        print(f"📤 {platform_name} için {len(profiles)} profil gönderildi.")
+        print(f"📤 {platform_name} için {len(profiles)} profil gönderildi (kaynak: {source}).")
     except Exception as e:
         print(f"❌ Grup gönderme hatası: {e}")
     time.sleep(1)
@@ -464,13 +514,21 @@ def send_image_search_group(results, tiktok_avatar, tiktok_user):
         print(f"❌ Görsel arama gönderme hatası: {e}")
     time.sleep(1)
 
-def send_summary_report(found_counts, tiktok_user):
-    if not found_counts:
+def send_summary_report(found_counts_username, found_counts_name, tiktok_user):
+    if not found_counts_username and not found_counts_name:
         return
-    total = sum(found_counts.values())
+    total_username = sum(found_counts_username.values())
+    total_name = sum(found_counts_name.values())
+    total = total_username + total_name
     description = f"Toplam **{total}** profil bulundu.\n"
-    for platform, count in found_counts.items():
-        description += f"\n{platform}: {count}"
+    if total_username > 0:
+        description += f"\n**Kullanıcı adı eşleşmeleri:**\n"
+        for platform, count in found_counts_username.items():
+            description += f"{platform}: {count}\n"
+    if total_name > 0:
+        description += f"\n**İsim eşleşmeleri:**\n"
+        for platform, count in found_counts_name.items():
+            description += f"{platform}: {count}\n"
     
     embed = {
         "title": "📊 Tarama Raporu",
@@ -524,22 +582,28 @@ async def main():
     except:
         pass
     
-    variations = generate_username_variations(username)
-    print(f"📝 {len(variations)} kullanıcı adı varyasyonu test edilecek.")
+    # 1. Kullanıcı adı varyasyonları
+    username_vars = generate_username_variations(username)
+    print(f"📝 {len(username_vars)} kullanıcı adı varyasyonu test edilecek.")
     
-    found_by_platform = defaultdict(list)
+    # 2. İsim varyasyonları
+    name_vars = generate_name_variations(profile['display_name'])
+    print(f"📝 {len(name_vars)} isim varyasyonu test edilecek: {name_vars}")
+    
+    found_by_platform = defaultdict(list)      # username
+    found_by_name_platform = defaultdict(list) # name
     
     async with aiohttp.ClientSession() as session:
-        for var_username in variations:
-            print(f"\n🔎 Test ediliyor: '{var_username}'")
+        # Kullanıcı adı araması
+        for var_username in username_vars:
+            print(f"\n🔎 Kullanıcı adı testi: '{var_username}'")
             for platform in PLATFORMS:
                 test_username = var_username
                 if platform["name"] == "Tumblr":
                     test_username = var_username
-                
                 result = await check_platform(session, platform, test_username)
                 if result:
-                    identifier = f"{platform['name']}:{result['url']}"
+                    identifier = f"username:{platform['name']}:{result['url']}"
                     if identifier not in sent:
                         similarity = fuzz.ratio(username.lower(), var_username.lower())
                         if similarity >= 60:
@@ -555,26 +619,62 @@ async def main():
                             print(f"✅ {platform['name']}: {var_username} (benzerlik %{similarity})")
                     await asyncio.sleep(1.5)
             await asyncio.sleep(1)
+        
+        # İsim araması
+        for var_name in name_vars:
+            print(f"\n🔎 İsim testi: '{var_name}'")
+            for platform in PLATFORMS:
+                test_name = var_name
+                if platform["name"] == "Tumblr":
+                    test_name = var_name
+                result = await check_platform(session, platform, test_name)
+                if result:
+                    identifier = f"name:{platform['name']}:{result['url']}"
+                    if identifier not in sent:
+                        found_by_name_platform[platform['name']].append({
+                            "term": var_name,   # aranan terim
+                            "url": result['url'],
+                            "followers": result.get('followers'),
+                            "title": result.get('title'),
+                            "avatar": result.get('avatar')
+                        })
+                        sent.add(identifier)
+                        print(f"✅ {platform['name']}: {var_name} (isim eşleşmesi)")
+                    await asyncio.sleep(1.5)
+            await asyncio.sleep(1)
     
-    platform_counts = {}
+    platform_counts_username = {}
+    platform_counts_name = {}
+    
+    # Kullanıcı adı gruplarını gönder
     for platform_name, profiles in found_by_platform.items():
         if profiles:
-            send_platform_group(platform_name, profiles, profile.get('avatar'), username)
-            platform_counts[platform_name] = len(profiles)
+            send_platform_group(platform_name, profiles, profile.get('avatar'), username, source="username")
+            platform_counts_username[platform_name] = len(profiles)
     
+    # İsim gruplarını gönder
+    for platform_name, profiles in found_by_name_platform.items():
+        if profiles:
+            send_platform_group(platform_name, profiles, profile.get('avatar'), username, source="name")
+            platform_counts_name[platform_name] = len(profiles)
+    
+    # Görsel arama
     if profile.get('avatar'):
         print("\n🔎 Görsel arama başlıyor...")
         image_results = await search_image_multi_engine(profile['avatar'], username)
         if image_results:
             send_image_search_group(image_results, profile.get('avatar'), username)
     
-    if platform_counts:
-        send_summary_report(platform_counts, username)
+    # Özet rapor
+    if platform_counts_username or platform_counts_name:
+        send_summary_report(platform_counts_username, platform_counts_name, username)
     
     with open(sent_file, "w") as f:
         f.write("\n".join(sent))
     
-    print(f"\n✅ Bot çalışması tamamlandı. {sum(platform_counts.values())} yeni profil bulundu.")
+    total_username = sum(platform_counts_username.values())
+    total_name = sum(platform_counts_name.values())
+    print(f"\n✅ Bot çalışması tamamlandı. Kullanıcı adı: {total_username}, İsim: {total_name} toplam {total_username+total_name} yeni profil bulundu.")
 
 if __name__ == "__main__":
     try:
