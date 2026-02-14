@@ -1,14 +1,14 @@
-name: TikTok Profil Tarayıcı
+name: TikTok FBI Ajanı
 
 on:
   schedule:
-    - cron: '*/30 * * * *'   # 30 dakikada bir (fazla sık yapmayalım, Yandex engelleyebilir)
+    - cron: '0 */6 * * *'  # Günde 4 kez (isteğe bağlı)
   workflow_dispatch:
 
 jobs:
-  check:
+  scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
@@ -16,9 +16,9 @@ jobs:
           python-version: '3.10'
       - name: Kütüphaneleri kur
         run: |
-          pip install playwright requests beautifulsoup4 fuzzywuzzy python-Levenshtein
+          pip install playwright requests beautifulsoup4
           playwright install firefox
-      - name: Botu çalıştır
+      - name: FBI Ajanı botu çalıştır
         run: python -u main.py
         env:
           TIKTOK_USER: ${{ secrets.TIKTOK_USER }}
