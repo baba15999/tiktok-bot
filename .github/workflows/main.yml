@@ -1,8 +1,8 @@
-name: Fedai Bot - Sosyal Medya Dedektifi
+name: Fedai Bot Pro - Akıllı Sosyal Medya Dedektifi
 
 on:
   schedule:
-    - cron: '0 */3 * * *'  # Günde 8 kez
+    - cron: '0 */6 * * *'  # Günde 4 kez
   workflow_dispatch:
 
 jobs:
@@ -17,7 +17,7 @@ jobs:
       
       - name: Kütüphaneleri kur
         run: |
-          pip install playwright requests beautifulsoup4 pillow fuzzywuzzy python-Levenshtein aiohttp
+          pip install playwright requests beautifulsoup4 pillow fuzzywuzzy python-Levenshtein aiohttp aiofile
           playwright install firefox chromium
       
       - name: Dedektif botu çalıştır
