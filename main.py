@@ -1,14 +1,15 @@
-print("🚀 BOT BAŞLADI!")
+print("🚀 FBI AJANI BOT BAŞLADI!")
 
 import os
 import asyncio
 import requests
 import re
 import time
+import random
 from datetime import datetime
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
-from fuzzywuzzy import fuzz
+from urllib.parse import urlparse
 
 # ========== ORTAM DEĞİŞKENLERİ ==========
 webhook_url = os.environ.get("DISCORD_WEBHOOK")
@@ -21,7 +22,7 @@ if not webhook_url or not tiktok_user:
 # ========== TEST MESAJI ==========
 test_embed = {
     "title": "🧪 TEST MESAJI",
-    "description": "Bot çalışıyor, webhook aktif.",
+    "description": "FBI ajanı bot aktif.",
     "color": 0x0000ff
 }
 try:
@@ -30,10 +31,37 @@ try:
 except Exception as e:
     print(f"❌ TEST MESAJI HATASI: {e}")
 
-# ========== FONKSİYONLAR ==========
+# ========== RASTGELE USER-AGENT ==========
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_1_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1"
+]
 
+def get_headers():
+    return {"User-Agent": random.choice(USER_AGENTS)}
+
+# ========== PLATFORM LİSTESİ ==========
+PLATFORMS = [
+    {"name": "Instagram", "url": "https://www.instagram.com/{}/", "check": True},
+    {"name": "Twitter", "url": "https://twitter.com/{}", "check": True},
+    {"name": "Facebook", "url": "https://www.facebook.com/{}", "check": True},
+    {"name": "YouTube", "url": "https://www.youtube.com/@{}", "check": True},
+    {"name": "TikTok", "url": "https://www.tiktok.com/@{}", "check": True},
+    {"name": "Twitch", "url": "https://www.twitch.tv/{}", "check": True},
+    {"name": "Reddit", "url": "https://www.reddit.com/user/{}", "check": True},
+    {"name": "Pinterest", "url": "https://www.pinterest.com/{}/", "check": True},
+    {"name": "Tumblr", "url": "https://{}.tumblr.com", "check": True},
+    {"name": "GitHub", "url": "https://github.com/{}", "check": True},
+    {"name": "LinkedIn", "url": "https://www.linkedin.com/in/{}", "check": True},
+    {"name": "Snapchat", "url": "https://www.snapchat.com/add/{}", "check": True},
+    {"name": "Telegram", "url": "https://t.me/{}", "check": True},
+    {"name": "Discord", "url": "https://discord.com/users/{}", "check": False}, # Discord ID gerektirir
+]
+
+# ========== TIKTOK PROFİL BİLGİLERİNİ ÇEK ==========
 async def get_tiktok_profile(username):
-    """Sadece profil bilgilerini al (avatar, isim, takipçi, biyografi)"""
     print(f"🔍 TikTok profil bilgileri alınıyor: @{username}")
     async with async_playwright() as p:
         browser = await p.firefox.launch(headless=True)
@@ -42,181 +70,206 @@ async def get_tiktok_profile(username):
         profile_url = f"https://www.tiktok.com/@{username}"
         try:
             await page.goto(profile_url, timeout=60000)
-            await page.wait_for_timeout(15000)
+            await page.wait_for_timeout(8000)
         except Exception as e:
             print(f"❌ Sayfa yüklenemedi: {e}")
             await browser.close()
             return None
         
-        # Profil fotoğrafı
-        avatar = None
+        # Avatar
         avatar_selectors = [
             'img[src*="avt"]',
             'img[alt*="avatar"]',
             'img[class*="avatar"]',
             'img[data-e2e="user-avatar"]'
         ]
+        avatar = None
         for sel in avatar_selectors:
             try:
                 avatar = await page.eval_on_selector(sel, 'el => el.src')
                 if avatar:
-                    print(f"🖼 Avatar bulundu (seçici: {sel})")
                     break
             except:
                 continue
         
         # İsim
-        display_name = username
         try:
-            name_elem = await page.query_selector('h1[data-e2e="user-title"]')
-            if name_elem:
-                display_name = await name_elem.text_content()
-                display_name = display_name.strip()
+            display_name = await page.eval_on_selector(
+                'h1[data-e2e="user-title"], h1[class*="share-title"]',
+                'el => el.textContent'
+            )
+            display_name = display_name.strip() if display_name else username
         except:
-            pass
+            display_name = username
         
         # Takipçi
-        followers = "Bilinmiyor"
         try:
-            follower_elem = await page.query_selector('strong[data-e2e="followers-count"]')
-            if follower_elem:
-                followers = await follower_elem.text_content()
-                followers = followers.strip()
+            followers = await page.eval_on_selector(
+                'strong[data-e2e="followers-count"]',
+                'el => el.textContent'
+            )
+            followers = followers.strip()
         except:
-            pass
-        
-        # Takip edilen
-        following = "Bilinmiyor"
-        try:
-            following_elem = await page.query_selector('strong[data-e2e="following-count"]')
-            if following_elem:
-                following = await following_elem.text_content()
-                following = following.strip()
-        except:
-            pass
+            followers = "?"
         
         # Biyografi
-        bio = "Biyografi yok"
         try:
-            bio_elem = await page.query_selector('h2[data-e2e="user-bio"]')
-            if bio_elem:
-                bio = await bio_elem.text_content()
-                bio = bio.strip()
+            bio = await page.eval_on_selector(
+                'h2[data-e2e="user-bio"]',
+                'el => el.textContent'
+            )
+            bio = bio.strip() if bio else ""
         except:
-            pass
+            bio = ""
         
         await browser.close()
         
         return {
-            'avatar': avatar,
-            'display_name': display_name,
-            'followers': followers,
-            'following': following,
-            'bio': bio
+            "avatar": avatar,
+            "display_name": display_name,
+            "followers": followers,
+            "bio": bio,
+            "username": username
         }
 
-def check_social_media_username(username):
-    """
-    Verilen kullanıcı adını Instagram, Twitter, Facebook, YouTube, Twitch'te dener.
-    Sayfa var mı yok mu kontrol eder.
-    Dönen: {platform: link, var_mı: bool}
-    """
-    platforms = {
-        "Instagram": f"https://www.instagram.com/{username}/",
-        "Twitter": f"https://twitter.com/{username}",
-        "Facebook": f"https://www.facebook.com/{username}",
-        "YouTube": f"https://www.youtube.com/@{username}",
-        "Twitch": f"https://www.twitch.tv/{username}",
-        "TikTok": f"https://www.tiktok.com/@{username}",  # zaten biliyoruz ama yine de
-    }
-    
-    results = []
-    for platform, url in platforms.items():
+# ========== KULLANICI ADI ARAMA (HTTP) ==========
+def check_username_on_platforms(username):
+    print("🔎 Kullanıcı adı taraması başlıyor...")
+    found = []
+    for platform in PLATFORMS:
+        if not platform["check"]:
+            continue
+        url = platform["url"].format(username)
         try:
-            response = requests.get(url, timeout=5, allow_redirects=True)
-            # 200 OK dönerse sayfa var (bazı platformlar 404 dönmez, içerik kontrolü gerekebilir)
+            # Rastgele bekle (rate-limit'i aşmak için)
+            time.sleep(random.uniform(2, 5))
+            response = requests.get(url, headers=get_headers(), timeout=10, allow_redirects=True)
             if response.status_code == 200:
-                # Basit bir içerik kontrolü: "Page not found" gibi ifadeler varsa geç
-                if "not found" in response.text.lower() or "this page doesn't exist" in response.text.lower():
-                    continue
-                results.append((platform, url))
-                print(f"✅ {platform} profili bulundu: {url}")
+                print(f"✅ {platform['name']} profili bulundu: {url}")
+                # Sayfa başlığını al (varsa)
+                soup = BeautifulSoup(response.text, 'html.parser')
+                title = soup.find('title').text if soup.find('title') else ""
+                found.append({
+                    "platform": platform['name'],
+                    "url": url,
+                    "title": title[:100],
+                    "method": "username_match"
+                })
+            elif response.status_code == 429:
+                print(f"⚠️ {platform['name']} rate-limit (429), atlanıyor.")
             else:
-                print(f"❌ {platform} profili yok (HTTP {response.status_code})")
+                print(f"❌ {platform['name']} profili yok (HTTP {response.status_code})")
         except Exception as e:
-            print(f"⚠️ {platform} kontrol edilirken hata: {e}")
-    return results
+            print(f"⚠️ {platform['name']} kontrol edilemedi: {e}")
+    return found
 
-def search_yandex_by_image(image_url, username):
-    """
-    Yandex Görsel'de ara, çıkan linklerden sosyal medya profillerini topla.
-    """
-    print(f"🔍 Yandex'te görsel arama yapılıyor...")
-    found_profiles = []  # (platform, link) şeklinde
-    
-    temp_filename = f"temp_{username}.jpg"
+# ========== GOOGLE'DA KULLANICI ADI ARAMA ==========
+def search_username_on_google(username):
+    print("🔎 Google'da kullanıcı adı aranıyor...")
+    found = []
     try:
-        # Görseli indir
-        img_response = requests.get(image_url, timeout=15)
-        with open(temp_filename, "wb") as f:
-            f.write(img_response.content)
-        
-        # Yandex'e yükle
-        search_url = "https://yandex.com/images/search"
-        files = {"upfile": (temp_filename, open(temp_filename, "rb"), "image/jpeg")}
-        params = {"rpt": "imageview", "format": "json"}
-        
-        response = requests.post(search_url, params=params, files=files, timeout=30)
-        
-        # Sayfa kaynağını parse et
-        soup = BeautifulSoup(response.text, 'html.parser')
-        all_links = soup.find_all('a', href=True)
-        
-        # Sosyal medya platformlarını tanımla
-        social_patterns = {
-            "Instagram": r'(https?://)?(www\.)?instagram\.com/[a-zA-Z0-9_.]+/?',
-            "Twitter": r'(https?://)?(www\.)?twitter\.com/[a-zA-Z0-9_]+/?',
-            "Facebook": r'(https?://)?(www\.)?facebook\.com/[a-zA-Z0-9.]+/?',
-            "YouTube": r'(https?://)?(www\.)?youtube\.com/(c|user|@|channel)/[a-zA-Z0-9_]+/?',
-            "Twitch": r'(https?://)?(www\.)?twitch\.tv/[a-zA-Z0-9_]+/?',
-            "TikTok": r'(https?://)?(www\.)?tiktok\.com/@[a-zA-Z0-9_.]+/?',
-        }
-        
-        for a in all_links:
-            href = a['href']
-            for platform, pattern in social_patterns.items():
-                if re.search(pattern, href, re.IGNORECASE):
-                    # Linki temizle
-                    full_url = href if href.startswith('http') else 'https://' + href
-                    found_profiles.append((platform, full_url))
-                    print(f"📸 Yandex'te {platform} profili bulundu: {full_url}")
-                    break  # bir link bir platforma ait, diğerlerine bakma
-        
-        # Tekrarları temizle
-        found_profiles = list(set(found_profiles))[:10]  # en fazla 10 tane
-        
+        time.sleep(random.uniform(3, 6))
+        search_url = f"https://www.google.com/search?q={username}"
+        response = requests.get(search_url, headers=get_headers(), timeout=15)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            # Google sonuç linklerini topla
+            for link in soup.find_all('a', href=True):
+                href = link['href']
+                if 'http' in href and not 'google.com' in href:
+                    # Temizle
+                    match = re.search(r'https?://[^&"]+', href)
+                    if match:
+                        url = match.group()
+                        # Sadece sosyal medya domainlerini al
+                        if any(domain in url for domain in ['instagram', 'twitter', 'facebook', 'tiktok', 'youtube', 'twitch', 'reddit']):
+                            found.append({
+                                "platform": "Google Sonuç",
+                                "url": url,
+                                "method": "google_search"
+                            })
+        else:
+            print(f"⚠️ Google arama başarısız: {response.status_code}")
     except Exception as e:
-        print(f"❌ Yandex arama hatası: {e}")
-    finally:
-        if os.path.exists(temp_filename):
-            os.remove(temp_filename)
-    
-    return found_profiles
+        print(f"⚠️ Google arama hatası: {e}")
+    return found
 
-def send_profile_to_discord(profile_data, username):
+# ========== YANDEX GÖRSEL ARAMA (Playwright ile) ==========
+async def search_yandex_by_image_playwright(image_url, tiktok_username):
+    print("🔍 Yandex Görsel'de (Playwright) arama yapılıyor...")
+    found = []
+    async with async_playwright() as p:
+        browser = await p.firefox.launch(headless=True)
+        page = await browser.new_page()
+        try:
+            # Yandex Görsel ana sayfası
+            await page.goto("https://yandex.com/images/", timeout=60000)
+            await page.wait_for_timeout(3000)
+            
+            # Dosya yükleme input'u
+            file_input = await page.query_selector('input[type="file"]')
+            if not file_input:
+                print("❌ Yandex'te dosya yükleme input'u bulunamadı.")
+                return []
+            
+            # Resmi indir ve geçici dosyaya kaydet
+            img_data = requests.get(image_url, timeout=10).content
+            temp_file = f"temp_{tiktok_username}.jpg"
+            with open(temp_file, "wb") as f:
+                f.write(img_data)
+            
+            # Dosyayı yükle
+            await file_input.set_input_files(temp_file)
+            await page.wait_for_timeout(8000)  # Arama sonuçlarının yüklenmesini bekle
+            
+            # Sayfadaki tüm linkleri topla
+            links = await page.eval_on_selector_all(
+                'a[href]',
+                'els => els.map(el => el.href)'
+            )
+            
+            # Sosyal medya linklerini filtrele
+            for link in links:
+                if any(domain in link for domain in ['instagram', 'twitter', 'facebook', 'tiktok', 'youtube', 'twitch', 'reddit']):
+                    found.append({
+                        "platform": "Yandex Görsel",
+                        "url": link,
+                        "method": "image_search"
+                    })
+            
+            # Benzersiz yap
+            unique = []
+            seen = set()
+            for item in found:
+                if item['url'] not in seen:
+                    seen.add(item['url'])
+                    unique.append(item)
+            
+            print(f"📸 Yandex'te {len(unique)} sosyal medya linki bulundu.")
+            return unique[:15]  # İlk 15
+            
+        except Exception as e:
+            print(f"❌ Yandex arama hatası: {e}")
+            return []
+        finally:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+            await browser.close()
+
+# ========== DISCORD'A MESAJ GÖNDERME ==========
+def send_profile_to_discord(profile):
     embed = {
-        "title": f"👤 {profile_data.get('display_name', username)}",
-        "url": f"https://www.tiktok.com/@{username}",
+        "title": f"👤 {profile['display_name']} (@{profile['username']})",
+        "url": f"https://www.tiktok.com/@{profile['username']}",
         "color": 0x9b59b6,
         "timestamp": datetime.utcnow().isoformat(),
-        "footer": {"text": f"@{username} • Profil Bilgileri"}
+        "footer": {"text": "TikTok Profil Bilgileri"}
     }
-    if profile_data.get('avatar'):
-        embed["thumbnail"] = {"url": profile_data['avatar']}
+    if profile.get('avatar'):
+        embed["thumbnail"] = {"url": profile['avatar']}
     embed["fields"] = [
-        {"name": "👥 Takipçi", "value": profile_data.get('followers', 'Bilinmiyor'), "inline": True},
-        {"name": "👥 Takip", "value": profile_data.get('following', 'Bilinmiyor'), "inline": True},
-        {"name": "📝 Biyografi", "value": profile_data.get('bio', 'Bilinmiyor')[:100], "inline": False}
+        {"name": "👥 Takipçi", "value": profile['followers'], "inline": True},
+        {"name": "📝 Biyografi", "value": profile['bio'][:100] if profile['bio'] else "Yok", "inline": False}
     ]
     try:
         requests.post(webhook_url, json={"embeds": [embed]})
@@ -224,93 +277,91 @@ def send_profile_to_discord(profile_data, username):
     except Exception as e:
         print(f"❌ Profil gönderme hatası: {e}")
 
-def send_social_media_log(platform, profile_url, similarity_score, tiktok_username, avatar_url=None, source="Kullanıcı Adı Taraması"):
+def send_social_media_log(item, tiktok_username, avatar_url=None):
     """
-    Bulunan sosyal medya profillerini Discord'a log olarak gönderir.
-    source: "Kullanıcı Adı Taraması" veya "Görsel Arama (Yandex)"
+    item: {"platform": "...", "url": "...", "title": "...", "method": "..."}
     """
+    if item["method"] == "username_match":
+        color = 0x00ff00
+        title = f"🔍 {item['platform']} Profili Bulundu (Kullanıcı Adı)"
+    elif item["method"] == "google_search":
+        color = 0xffaa00
+        title = f"🌐 Google'da Bulundu: {item['platform']}"
+    else:
+        color = 0xff69b4
+        title = f"🖼️ Görsel Arama Sonucu: {item['platform']}"
+    
     embed = {
-        "title": f"🔍 {platform} Profili Bulundu ({source})",
-        "url": profile_url,
-        "color": 0xff69b4,
+        "title": title,
+        "url": item['url'],
+        "color": color,
         "timestamp": datetime.utcnow().isoformat(),
         "footer": {"text": f"@{tiktok_username} ile bağlantılı olabilir"}
     }
     if avatar_url:
         embed["thumbnail"] = {"url": avatar_url}
-    if similarity_score > 0:
-        embed["fields"] = [
-            {"name": "Kullanıcı Adı Benzerliği", "value": f"%{similarity_score}", "inline": True}
-        ]
+    if item.get('title'):
+        embed["description"] = item['title'][:200]
+    
     try:
         requests.post(webhook_url, json={"embeds": [embed]})
-        print(f"✅ {platform} log gönderildi.")
+        print(f"📤 {item['platform']} log gönderildi.")
     except Exception as e:
-        print(f"❌ Sosyal medya log gönderme hatası: {e}")
+        print(f"❌ Log gönderme hatası: {e}")
 
 # ========== ANA FONKSİYON ==========
 async def main():
     username = tiktok_user
     
-    # Daha önce gönderilen sosyal medya linklerini takip et (tekrar gönderme)
-    sent_social_file = "sent_social.txt"
+    # Daha önce gönderilenleri takip et (basit dosya)
+    sent_file = "sent_urls.txt"
     try:
-        with open(sent_social_file, "r") as f:
-            sent_social = set(f.read().splitlines())
+        with open(sent_file, "r") as f:
+            sent = set(f.read().splitlines())
     except:
-        sent_social = set()
+        sent = set()
     
-    # Profil bilgilerini al
-    profile_data = await get_tiktok_profile(username)
-    if not profile_data:
+    # TikTok profil bilgileri
+    profile = await get_tiktok_profile(username)
+    if not profile:
         print("❌ Profil bilgileri alınamadı.")
         return
     
-    # Profil bilgilerini gönder (ilk defa, ama her seferinde gönderebiliriz, önemli değil)
-    send_profile_to_discord(profile_data, username)
-    await asyncio.sleep(2)
+    # Profil bilgilerini gönder
+    send_profile_to_discord(profile)
     
-    # ----- 1. KULLANICI ADI TARAMASI -----
-    print("\n🔎 Kullanıcı adı taraması başlıyor...")
-    social_results = check_social_media_username(username)
-    
-    for platform, url in social_results:
-        if url not in sent_social:
-            # Benzerlik skoru: TikTok kullanıcı adı ile platformdaki kullanıcı adı aynı olduğu için %100
-            similarity = 100
-            send_social_media_log(platform, url, similarity, username, profile_data.get('avatar'), source="Kullanıcı Adı Taraması")
-            sent_social.add(url)
+    # 1. Kullanıcı adı taraması (platformlar)
+    username_results = check_username_on_platforms(username)
+    for res in username_results:
+        if res['url'] not in sent:
+            send_social_media_log(res, username, profile.get('avatar'))
+            sent.add(res['url'])
             time.sleep(1)
-        else:
-            print(f"⏩ {url} daha önce gönderilmiş.")
     
-    # ----- 2. GÖRSEL ARAMA (YANDEX) -----
-    if profile_data.get('avatar'):
-        print("\n🔎 Görsel arama (Yandex) başlıyor...")
-        yandex_results = search_yandex_by_image(profile_data['avatar'], username)
-        
-        for platform, url in yandex_results:
-            if url not in sent_social:
-                # Platformdan kullanıcı adını çıkar, benzerlik hesapla
-                match = re.search(rf'{platform.lower()}\.com/([a-zA-Z0-9_.@]+)', url, re.IGNORECASE)
-                if match:
-                    social_username = match.group(1).strip('/')
-                    similarity = fuzz.ratio(username.lower(), social_username.lower())
-                else:
-                    similarity = 0
-                send_social_media_log(platform, url, similarity, username, profile_data.get('avatar'), source="Görsel Arama (Yandex)")
-                sent_social.add(url)
+    # 2. Google araması
+    google_results = search_username_on_google(username)
+    for res in google_results:
+        if res['url'] not in sent:
+            send_social_media_log(res, username, profile.get('avatar'))
+            sent.add(res['url'])
+            time.sleep(1)
+    
+    # 3. Görsel arama (Yandex Playwright)
+    if profile.get('avatar'):
+        image_results = await search_yandex_by_image_playwright(profile['avatar'], username)
+        for res in image_results:
+            if res['url'] not in sent:
+                send_social_media_log(res, username, profile.get('avatar'))
+                sent.add(res['url'])
                 time.sleep(1)
-            else:
-                print(f"⏩ {url} daha önce gönderilmiş.")
     else:
-        print("⚠️ Profil fotoğrafı olmadığı için görsel arama yapılamadı.")
+        print("⚠️ Avatar yok, görsel arama atlanıyor.")
     
-    # Gönderilen sosyal linkleri kaydet
-    with open(sent_social_file, "w") as f:
-        f.write("\n".join(sent_social))
+    # Gönderilenleri kaydet
+    with open(sent_file, "w") as f:
+        f.write("\n".join(sent))
     
-    print("\n✅ Bot çalışması tamamlandı.")
+    print("✅ Bot çalışması tamamlandı.")
 
 if __name__ == "__main__":
     try:
