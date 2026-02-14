@@ -12,7 +12,7 @@ from PIL import Image
 from io import BytesIO
 from fuzzywuzzy import fuzz
 
-# Opsiyonel: playwright-stealth (kurulu değilse sorun değil)
+# Opsiyonel: playwright-stealth
 try:
     from playwright_stealth import stealth_async
     STEALTH_AVAILABLE = True
@@ -130,10 +130,12 @@ async def get_tiktok_data(username):
             profile_data['bio'] = "Biyografi yok"
         print(f"📝 Biyografi: {profile_data['bio'][:50]}...")
         
-        # ----- VİDEO LİNKLERİ -----
+        # ----- VİDEO LİNKLERİ (2 yöntem) -----
         video_links = []
+        
+        # Yöntem 1: Seçici ile
         try:
-            await page.wait_for_selector('div[data-e2e="user-post-item"]', timeout=30000)
+            await page.wait_for_selector('div[data-e2e="user-post-item"]', timeout=15000)
             for _ in range(5):
                 await page.evaluate("window.scrollBy(0, window.innerHeight)")
                 await page.wait_for_timeout(3000)
@@ -141,10 +143,21 @@ async def get_tiktok_data(username):
                 'div[data-e2e="user-post-item"] a[href*="/video/"]',
                 'els => els.map(el => el.href)'
             )
-            video_links = list(set(links))[:10]
-            print(f"🎥 Video linkleri: {len(video_links)}")
+            video_links.extend(links)
+            print(f"🎥 Yöntem 1 ile {len(links)} video linki bulundu.")
         except Exception as e:
-            print(f"⚠️ Video linkleri alınamadı: {e}")
+            print(f"⚠️ Yöntem 1 başarısız: {e}")
+        
+        # Yöntem 2: Regex ile sayfa kaynağından
+        if len(video_links) < 3:
+            print("🔍 Yöntem 2: Regex ile video ID'leri aranıyor...")
+            content = await page.content()
+            video_ids = re.findall(r'/video/(\d+)', content)
+            unique_ids = list(set(video_ids))[:10]
+            regex_links = [f"https://www.tiktok.com/@{username}/video/{vid}" for vid in unique_ids]
+            video_links.extend(regex_links)
+            video_links = list(set(video_links))[:10]
+            print(f"🎥 Yöntem 2 ile {len(regex_links)} video linki eklendi (toplam: {len(video_links)}).")
         
         # ----- REPOST LİNKLERİ -----
         repost_links = []
@@ -162,7 +175,7 @@ async def get_tiktok_data(username):
                     'els => els.map(el => el.href)'
                 )
                 repost_links = list(set(repost_links))[:10]
-                print(f"🔄 Repost linkleri: {len(repost_links)}")
+                print(f"🔄 {len(repost_links)} repost linki bulundu.")
             else:
                 print("⚠️ Repost sekmesi yok.")
         except Exception as e:
@@ -193,17 +206,31 @@ def search_yandex_by_image(image_url, username):
         response = requests.post(search_url, params=params, files=files, timeout=30)
         
         # JSON cevabını parse et (Yandex'in yapısı karmaşık, sayfa kaynağına da bakalım)
-        # Basit yöntem: Gelen sayfadaki tüm linkleri topla, instagram olanları filtrele
+        # Daha iyi bir yöntem: Gelen HTML'i parse et ve sonuçları al
         soup = BeautifulSoup(response.text, 'html.parser')
-        all_links = soup.find_all('a', href=True)
         
-        instagram_pattern = re.compile(r'(https?://)?(www\.)?instagram\.com/[a-zA-Z0-9_.]+/?')
-        for a in all_links:
-            href = a['href']
-            if instagram_pattern.search(href):
-                found_links.append(href)
+        # Yandex sonuçları genellikle 'serp-item' sınıfında oluyor
+        serp_items = soup.find_all('div', class_='serp-item')
+        for item in serp_items:
+            # Linkleri bul
+            links = item.find_all('a', href=True)
+            for a in links:
+                href = a['href']
+                if 'instagram.com' in href:
+                    # Temizle ve ekle
+                    clean_link = re.search(r'(https?://)?(www\.)?instagram\.com/[a-zA-Z0-9_.]+', href)
+                    if clean_link:
+                        found_links.append(clean_link.group(0))
         
-        # Bazen yönlendirme linkleri olabilir, temizle
+        # Alternatif: Tüm linkleri tara
+        if not found_links:
+            all_links = soup.find_all('a', href=True)
+            instagram_pattern = re.compile(r'(https?://)?(www\.)?instagram\.com/[a-zA-Z0-9_.]+/?')
+            for a in all_links:
+                href = a['href']
+                if instagram_pattern.search(href):
+                    found_links.append(href)
+        
         found_links = list(set(found_links))[:5]
         print(f"📸 Yandex'te {len(found_links)} Instagram linki bulundu.")
         
@@ -240,6 +267,7 @@ def send_profile_to_discord(profile_data, username):
     ]
     try:
         requests.post(webhook_url, json={"embeds": [embed]})
+        print("✅ Profil bilgileri gönderildi.")
     except Exception as e:
         print(f"❌ Profil gönderme hatası: {e}")
 
@@ -258,6 +286,7 @@ def send_videos_to_discord(video_links, username, video_type="video"):
         }
         try:
             requests.post(webhook_url, json={"embeds": [embed]})
+            print(f"✅ {title} gönderildi: {link[:50]}...")
             time.sleep(1)
         except Exception as e:
             print(f"❌ Gönderme hatası: {e}")
@@ -281,6 +310,7 @@ def send_social_media_log(platform, profile_url, similarity_score, tiktok_userna
         ]
     try:
         requests.post(webhook_url, json={"embeds": [embed]})
+        print(f"✅ {platform} log gönderildi: {profile_url}")
     except Exception as e:
         print(f"❌ Sosyal medya log gönderme hatası: {e}")
 
@@ -288,7 +318,7 @@ def send_social_media_log(platform, profile_url, similarity_score, tiktok_userna
 async def main():
     username = tiktok_user
     
-    # Daha önce gönderilenleri takip için dosyalar (opsiyonel)
+    # Daha önce gönderilenleri takip için dosyalar
     sent_videos_file = "sent_videos.txt"
     sent_reposts_file = "sent_reposts.txt"
     sent_social_file = "sent_social.txt"
@@ -296,18 +326,21 @@ async def main():
     try:
         with open(sent_videos_file, "r") as f:
             sent_videos = set(f.read().splitlines())
+        print(f"📁 Önceden gönderilen video: {len(sent_videos)}")
     except:
         sent_videos = set()
     
     try:
         with open(sent_reposts_file, "r") as f:
             sent_reposts = set(f.read().splitlines())
+        print(f"📁 Önceden gönderilen repost: {len(sent_reposts)}")
     except:
         sent_reposts = set()
     
     try:
         with open(sent_social_file, "r") as f:
             sent_social = set(f.read().splitlines())
+        print(f"📁 Önceden gönderilen sosyal link: {len(sent_social)}")
     except:
         sent_social = set()
     
@@ -341,6 +374,7 @@ async def main():
                     match = re.search(r'instagram\.com/([a-zA-Z0-9_.]+)', link)
                     ig_username = match.group(1) if match else ""
                     similarity = check_username_similarity(username, ig_username)
+                    # Benzerlik oranı düşük olsa bile at (istersen bir eşik koyabilirsin)
                     send_social_media_log("Instagram", link, similarity, username, profile_data['avatar'])
                     sent_social.add(link)
                     time.sleep(1)
@@ -353,20 +387,26 @@ async def main():
     # Videoları gönder
     new_videos = [v for v in video_links if v not in sent_videos]
     if new_videos:
+        print(f"🆕 {len(new_videos)} yeni video bulundu.")
         send_videos_to_discord(new_videos, username, "video")
         for v in new_videos:
             sent_videos.add(v)
         with open(sent_videos_file, "w") as f:
             f.write("\n".join(sent_videos))
+    else:
+        print("⏩ Yeni video yok.")
     
     # Repostları gönder
     new_reposts = [r for r in repost_links if r not in sent_reposts]
     if new_reposts:
+        print(f"🆕 {len(new_reposts)} yeni repost bulundu.")
         send_videos_to_discord(new_reposts, username, "repost")
         for r in new_reposts:
             sent_reposts.add(r)
         with open(sent_reposts_file, "w") as f:
             f.write("\n".join(sent_reposts))
+    else:
+        print("⏩ Yeni repost yok.")
     
     print("✅ Bot çalışması tamamlandı.")
 
