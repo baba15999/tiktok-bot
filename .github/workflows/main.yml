@@ -1,24 +1,26 @@
-name: TikTok FBI Ajanı
+name: Fedai Bot - Sosyal Medya Dedektifi
 
 on:
   schedule:
-    - cron: '0 */6 * * *'  # Günde 4 kez (isteğe bağlı)
+    - cron: '0 */3 * * *'  # Günde 8 kez
   workflow_dispatch:
 
 jobs:
-  scan:
+  investigate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
         with:
           python-version: '3.10'
+      
       - name: Kütüphaneleri kur
         run: |
-          pip install playwright requests beautifulsoup4
-          playwright install firefox
-      - name: FBI Ajanı botu çalıştır
+          pip install playwright requests beautifulsoup4 pillow fuzzywuzzy python-Levenshtein aiohttp
+          playwright install firefox chromium
+      
+      - name: Dedektif botu çalıştır
         run: python -u main.py
         env:
           TIKTOK_USER: ${{ secrets.TIKTOK_USER }}
